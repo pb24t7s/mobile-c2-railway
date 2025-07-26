@@ -1,0 +1,9 @@
+
+# .gitignore
+__pycache__/
+*.pyc
+.env
+c2_data.db
+.DS_Store
+venv/
+node_modules/
