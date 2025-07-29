@@ -1770,6 +1770,31 @@ def api_notification_details(notification_id):
     except Exception as e:
         log_activity(f"❌ Error in api_notification_details: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reset-database', methods=['POST'])
+def api_reset_database():
+    """Force database reset"""
+    try:
+        # Delete the database file
+        if os.path.exists(DATABASE):
+            os.remove(DATABASE)
+            log_activity("🗑️ Database file deleted")
+        
+        # Recreate database
+        init_success = init_db()
+        
+        if init_success:
+            log_activity("✅ Database recreated successfully")
+            return jsonify({'status': 'success', 'message': 'Database reset complete'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Database recreation failed'}), 500
+            
+    except Exception as e:
+        log_activity(f"❌ Error in database reset: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/clear-data', methods=['POST'])
 
 def api_clear_data():
